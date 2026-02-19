@@ -1,3 +1,6 @@
 openai
 python-dotenv
 groq
+sentence-transformers
+chromadb
+numpy

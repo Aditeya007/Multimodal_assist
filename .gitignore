@@ -3,6 +3,9 @@ venv# Environment variables (contains sensitive API keys)
 .env.local
 .env.*.local
 
+# Conversation history
+conversation.json
+
 # Virtual environments
 venv/
 env/
@@ -83,3 +86,6 @@ logs/
 *.tmp
 temp/
 tmp/
+
+*.bin
+*.json
