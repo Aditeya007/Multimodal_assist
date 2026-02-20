@@ -131,11 +131,18 @@ print("Profile template embeddings ready.")
 # Keywords that trigger the visual perception branch
 VISION_TRIGGERS = {"look", "see", "what do you see", "observe"}
 
-# Base system prompt (no longer persisted to JSON)
+# Base system prompt — extended with two visual-priority safety rules:
+#  (a) always prefer the live observation over stored memories.
+#  (b) only compare past vs current when the user explicitly asks (Part 5).
 BASE_SYSTEM_PROMPT = (
     "You are Vision, a personal AI assistant. "
     "Use conversation history to maintain context and help the user "
-    "learn, solve problems, and remember details."
+    "learn, solve problems, and remember details. "
+    "If a current visual observation is present, "
+    "prioritize it over any past observations or memories. "
+    "Do not assume the scene is unchanged. "
+    "Only compare current and past visual observations when the user "
+    "explicitly asks for comparison."
 )
 
 
@@ -404,7 +411,12 @@ def store_visual_memory(caption: str, image_path: str, visual_col, user_name: st
 def recall_visual(query_embedding: list, visual_col, n: int = 2) -> str:
     """
     Query the visual memory collection for semantically similar past observations.
-    Returns a formatted string for injection as system context, or "" if empty.
+
+    Part 2 — Returns a clearly labelled PAST VISUAL OBSERVATIONS block so the
+    LLM never confuses stored memories with the live camera feed.  The live
+    caption is never included here; it is injected separately as live_visual_block.
+
+    Returns a formatted string for injection as a system message, or "" if empty.
     """
     total = visual_col.count()
     if total == 0:
@@ -420,7 +432,13 @@ def recall_visual(query_embedding: list, visual_col, n: int = 2) -> str:
         return ""
 
     lines = "\n".join(f"- {doc}" for doc in docs)
-    return f"Relevant past visual observations:\n{lines}"
+    # Explicitly label these as PAST observations so the LLM treats them as
+    # background reference, not as the current state of the world.
+    return (
+        "PAST VISUAL OBSERVATIONS (FOR REFERENCE ONLY):\n"
+        + lines
+        + "\nUse these only if relevant. The current observation is more important."
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -472,6 +490,26 @@ def is_vision_trigger(text: str) -> bool:
     return any(trigger in lowered for trigger in VISION_TRIGGERS)
 
 
+# Part 2 — Phrases that signal the user wants a before/after comparison.
+_COMPARE_PHRASES = [
+    "compare",
+    "what changed",
+    "difference",
+    "same as before",
+    "did anything change",
+    "compare with previous",
+]
+
+
+def is_visual_compare_request(text: str) -> bool:
+    """Return True if the user explicitly asks to compare the current frame
+    with the previous one.  Comparison blocks are ONLY injected when this
+    returns True — keeping normal vision queries clean.
+    """
+    lowered = text.strip().lower()
+    return any(phrase in lowered for phrase in _COMPARE_PHRASES)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # USER SETUP — Per-user collections in the correct clients
 # ─────────────────────────────────────────────────────────────────────────────
@@ -492,6 +530,12 @@ print("Type 'exit', 'bye', 'sleep', 'shutdown', or 'quit' to end.\n")
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN CONVERSATION LOOP
 # ─────────────────────────────────────────────────────────────────────────────
+
+# `_previous_caption` stores the last successfully captured visual observation
+# so we can compare frames. None means no frame has been captured yet this session.
+# Using None (not '') lets us distinguish 'never seen a frame' from 'saw a blank'.
+_previous_caption: str | None = None
+
 while True:
     inp = input("How can I help you today, sir? ").strip()
 
@@ -500,8 +544,15 @@ while True:
         break
 
     # ── Visual Perception Branch ──────────────────────────────────────────
-    visual_context    = ""   # Current-turn observation (injected near the user message)
-    captured_caption  = ""   # Kept to store into visual memory after the LLM call
+    # live_visual_block  — labelled CURRENT VISUAL OBSERVATION; always injected
+    #                      after memory blocks but before the user message.
+    # comparison_block   — only built when the user explicitly asks to compare
+    #                      (Part 3); empty string otherwise.
+    # captured_caption   — held so we can persist to visual memory after the
+    #                      LLM call; never mixed into comparison/live blocks.
+    live_visual_block = ""   # Empty when camera not triggered this turn
+    comparison_block  = ""   # Part 3: empty unless compare intent detected
+    captured_caption  = ""   # Persisted to ChromaDB after the LLM call
     captured_path     = ""
 
     if is_vision_trigger(inp):
@@ -510,11 +561,43 @@ while True:
         if frame_path:
             caption = describe_frame(frame_path)
             print(f"  [Vision] Caption: {caption}")
-            visual_context   = f"Current visual observation: {caption}"
+
+            # Snapshot the previous caption BEFORE updating the tracker
+            # so we can use it in the comparison block for this turn.
+            # _previous_caption lives at module scope — no 'global' needed here.
+            if caption is not None:
+                prev_caption      = _previous_caption   # may be None on first run
+                _previous_caption = caption             # update for next turn
+
+            # Part 3 — Build comparison_block ONLY when the user explicitly asks.
+            # This keeps normal vision queries clean and uncluttered.
+            if is_visual_compare_request(inp) and prev_caption is not None:
+                comparison_block = (
+                    "VISUAL COMPARISON REQUESTED:\n\n"
+                    f"Previous observation:\n{prev_caption}\n\n"
+                    f"Current observation:\n{caption}\n\n"
+                    "Describe what changed or confirm if the scene is the same."
+                )
+                print("  [Vision] Comparison block built (user requested comparison)")
+
+            # Build the live observation block regardless of comparison intent.
+            # Scene-change notice prepended only when captions differ.
+            scene_change_notice = ""
+            if prev_caption is not None and caption.strip() != prev_caption.strip():
+                scene_change_notice = "The scene has changed since the last observation.\n"
+
+            live_visual_block = (
+                f"{scene_change_notice}"
+                f"CURRENT VISUAL OBSERVATION (MOST IMPORTANT):\n"
+                f"{caption}\n\n"
+                f"This is the most recent camera frame.\n"
+                f"It overrides any previous visual observations."
+            )
+
             captured_caption = caption
             captured_path    = frame_path
         else:
-            visual_context = "Visual observation failed: webcam unavailable."
+            live_visual_block = "Visual observation failed: webcam unavailable."
 
     # ── Semantic Pipeline ────────────────────────────────────────────────
     # 1. Generate embedding for the current input
@@ -530,8 +613,22 @@ while True:
     # 4. Store user message in semantic memory (for future recall)
     store_user_message(inp, emb, memory_col, user_name)
 
-    # ── PART 10 — Build LLM Context in Correct Order ─────────────────────
-    # 1. Base system prompt
+    # ── Build LLM Context — enforced ordering (Parts 1–5) ────────────────
+    #
+    # Order rationale (ensures LLM sees the freshest information last):
+    #   1. base system prompt   — identity + visual-priority + comparison rules
+    #   2. profile summary      — known facts about the user
+    #   3. recent conversation  — last N turns for local context
+    #   4. semantic recall      — episodic memory (similar past messages)
+    #   5. visual memory block  — PAST visual observations (reference only)
+    #   6. comparison_block     — side-by-side prev vs current (ONLY on request)
+    #   7. live_visual_block    — CURRENT camera observation (highest priority)
+    #   8. user message         — what the user said this turn
+    #
+    # comparison_block (step 6) is "" unless is_visual_compare_request() fired,
+    # so normal vision turns are completely unaffected.
+
+    # 1. Base system prompt (visual-priority + comparison-only rules from Part 5)
     messages_for_llm = [{"role": "system", "content": BASE_SYSTEM_PROMPT}]
 
     # 2. Profile summary (all known facts about the user)
@@ -543,21 +640,30 @@ while True:
     recent_turns = get_recent_conversation(convo_col, n=6)
     messages_for_llm.extend(recent_turns)
 
-    # 4. Semantic recall block (similar past messages)
+    # 4. Semantic recall block — similar past user messages (episodic memory)
     memory_block = recall_similar_messages(emb, memory_col)
     if memory_block:
         messages_for_llm.append({"role": "system", "content": memory_block})
 
-    # 5. Visual recall block (similar past visual observations)
+    # 5. Visual memory block — PAST visual observations, labelled reference-only;
+    #    the live caption is never mixed in here.
     visual_recall = recall_visual(emb, visual_col)
     if visual_recall:
         messages_for_llm.append({"role": "system", "content": visual_recall})
 
-    # 6. Current visual observation (this turn only)
-    if visual_context:
-        messages_for_llm.append({"role": "system", "content": visual_context})
+    # 6. Comparison block (Part 3) — injected ONLY when the user explicitly asks
+    #    to compare (e.g. "compare", "what changed", "did anything change").
+    #    Empty string on all other turns so normal vision is unaffected.
+    if comparison_block:
+        messages_for_llm.append({"role": "system", "content": comparison_block})
 
-    # 7. Current user message
+    # 7. Live visual block — CURRENT camera observation.
+    #    Placed after the comparison block so the LLM's freshest context is
+    #    always the live feed, not the side-by-side summary.
+    if live_visual_block:
+        messages_for_llm.append({"role": "system", "content": live_visual_block})
+
+    # 8. Current user message — always last
     messages_for_llm.append({"role": "user", "content": inp})
 
     # ── Groq LLM Call ─────────────────────────────────────────────────────
