@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vision — AI Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #222636;
+      --border:    #2e3349;
+      --accent:    #5f6fff;
+      --accent-dim:#3a3f7a;
+      --text:      #e2e5f0;
+      --muted:     #7a80a0;
+      --success:   #3ecf8e;
+      --warning:   #f5a623;
+      --danger:    #e05264;
+      --radius:    10px;
+      --shadow:    0 4px 24px rgba(0,0,0,.45);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      grid-template-columns: 1fr 320px;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      width: 28px; height: 28px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 16px;
+    }
+
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -.3px;
+    }
+
+    header .tagline {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
+    .status-dot {
+      margin-left: auto;
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; color: var(--muted);
+    }
+
+    .status-dot span {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+
+    .status-dot.online span { background: var(--success); }
+    .status-dot.online { color: var(--success); }
+
+    /* ── Chat column ──────────────────────────────────────────────────────── */
+    .chat-col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid var(--border);
+    }
+
+    /* Setup banner */
+    #setup-banner {
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 20px;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    #setup-banner label {
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    #name-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 7px 12px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color .2s;
+    }
+
+    #name-input:focus { border-color: var(--accent); }
+
+    #start-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 8px 18px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity .15s;
+      white-space: nowrap;
+    }
+
+    #start-btn:disabled { opacity: .45; cursor: not-allowed; }
+    #start-btn:hover:not(:disabled) { opacity: .85; }
+
+    /* Message list */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    #messages::-webkit-scrollbar { width: 5px; }
+    #messages::-webkit-scrollbar-track { background: transparent; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* Welcome */
+    .welcome {
+      text-align: center;
+      color: var(--muted);
+      padding: 48px 20px;
+      font-size: 13px;
+      line-height: 2;
+    }
+
+    .welcome .big { font-size: 32px; margin-bottom: 8px; }
+
+    /* Bubbles */
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-width: 80%;
+    }
+
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.assistant { align-self: flex-start; align-items: flex-start; }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg.user .bubble {
+      background: var(--accent);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg.assistant .bubble {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg-meta {
+      font-size: 11px;
+      color: var(--muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .tag {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      letter-spacing: .3px;
+      text-transform: uppercase;
+    }
+
+    .tag.vision { background: rgba(95,111,255,.2); color: var(--accent); }
+    .tag.intent { background: rgba(62,207,142,.15); color: var(--success); }
+
+    /* Typing indicator */
+    .typing-indicator {
+      display: flex; align-items: center; gap: 5px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      border-bottom-left-radius: 4px;
+      align-self: flex-start;
+    }
+
+    .typing-indicator span {
+      width: 6px; height: 6px;
+      background: var(--muted);
+      border-radius: 50%;
+      animation: bounce .9s infinite;
+    }
+
+    .typing-indicator span:nth-child(2) { animation-delay: .15s; }
+    .typing-indicator span:nth-child(3) { animation-delay: .3s; }
+
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30%            { transform: translateY(-5px); }
+    }
+
+    /* Input bar */
+    #input-bar {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    #msg-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 42px;
+      max-height: 120px;
+      line-height: 1.5;
+      transition: border-color .2s;
+    }
+
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: var(--muted); }
+
+    #send-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      width: 42px; height: 42px;
+      display: grid; place-items: center;
+      cursor: pointer;
+      transition: opacity .15s;
+      flex-shrink: 0;
+    }
+
+    #send-btn:disabled { opacity: .4; cursor: not-allowed; }
+    #send-btn:hover:not(:disabled) { opacity: .82; }
+
+    #send-btn svg { width: 18px; height: 18px; }
+
+    /* ── Sidebar ──────────────────────────────────────────────────────────── */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+      background: var(--surface);
+    }
+
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .panel {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-header {
+      padding: 13px 18px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: .8px;
+      text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .panel-body { padding: 0 18px 16px; }
+
+    /* Screenshot */
+    #screenshot-wrap {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      position: relative;
+      aspect-ratio: 4/3;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    #screenshot-img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .screenshot-placeholder {
+      text-align: center;
+      color: var(--muted);
+      padding: 20px;
+      font-size: 12px;
+    }
+
+    .screenshot-placeholder .icon { font-size: 28px; margin-bottom: 8px; }
+
+    #caption-text {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    /* Stats */
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+
+    .stat-row:last-child { border-bottom: none; }
+
+    .stat-label { color: var(--muted); }
+
+    .stat-value {
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Tips */
+    .tip-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .tip {
+      font-size: 12px;
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 11px;
+      line-height: 1.5;
+    }
+
+    .tip strong { color: var(--text); }
+
+    /* Disabled state for chat */
+    .chat-locked #msg-input,
+    .chat-locked #send-btn {
+      opacity: .4;
+      pointer-events: none;
+    }
+
+    /* Notification toast */
+    #toast {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      transform: translateY(80px);
+      opacity: 0;
+      transition: transform .3s, opacity .3s;
+      z-index: 100;
+      pointer-events: none;
+      max-width: 280px;
+    }
+
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.error { border-color: var(--danger); color: var(--danger); }
+    #toast.success { border-color: var(--success); color: var(--success); }
+
+    /* Mobile responsive */
+    @media (max-width: 700px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: 56px 1fr auto;
+      }
+
+      .sidebar { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">👁️</div>
+    <h1>Vision</h1>
+    <span class="tagline">— Multimodal AI Assistant</span>
+    <div class="status-dot" id="status-indicator">
+      <span></span>
+      <span id="status-text">Offline</span>
+    </div>
+  </header>
+
+  <!-- Chat column -->
+  <main class="chat-col chat-locked" id="chat-col">
+
+    <!-- Setup banner -->
+    <div id="setup-banner">
+      <label for="name-input">Your name</label>
+      <input id="name-input" type="text" placeholder="e.g. Aditeya" autocomplete="off" />
+      <button id="start-btn">Start Session</button>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages">
+      <div class="welcome">
+        <div class="big">👁️</div>
+        <strong>Welcome to Vision</strong><br />
+        Enter your name above to begin. You can ask me anything,<br />
+        or say <em>"look"</em> / <em>"see"</em> to activate the webcam.
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div id="input-bar">
+      <textarea
+        id="msg-input"
+        placeholder="Type a message… (Enter to send)"
+        rows="1"
+        disabled
+      ></textarea>
+      <button id="send-btn" disabled aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+  </main>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <!-- Screenshot panel -->
+    <div class="panel">
+      <div class="panel-header">📸 Live Snapshot</div>
+      <div class="panel-body">
+        <div id="screenshot-wrap">
+          <img id="screenshot-img" alt="Latest webcam capture" />
+          <div class="screenshot-placeholder">
+            <div class="icon">📷</div>
+            No snapshot yet.<br />Say "look" to capture.
+          </div>
+        </div>
+        <p id="caption-text"></p>
+      </div>
+    </div>
+
+    <!-- Session stats -->
+    <div class="panel">
+      <div class="panel-header">📊 Session</div>
+      <div class="panel-body">
+        <div class="stat-row">
+          <span class="stat-label">User</span>
+          <span class="stat-value" id="stat-user">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Messages sent</span>
+          <span class="stat-value" id="stat-msgs">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Vision activations</span>
+          <span class="stat-value" id="stat-vision">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Last intent</span>
+          <span class="stat-value" id="stat-intent">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tips -->
+    <div class="panel">
+      <div class="panel-header">💡 Quick Tips</div>
+      <div class="panel-body">
+        <div class="tip-list">
+          <div class="tip"><strong>Vision triggers:</strong> say "look", "see", "observe", or "what do you see"</div>
+          <div class="tip"><strong>Compare frames:</strong> say "compare", "what changed", "did anything change"</div>
+          <div class="tip"><strong>Profile:</strong> introduce yourself — Vision remembers your name, skills &amp; interests</div>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  // ── DOM refs ────────────────────────────────────────────────────────────────
+  const setupBanner  = document.getElementById('setup-banner');
+  const nameInput    = document.getElementById('name-input');
+  const startBtn     = document.getElementById('start-btn');
+  const chatCol      = document.getElementById('chat-col');
+  const messagesEl   = document.getElementById('messages');
+  const msgInput     = document.getElementById('msg-input');
+  const sendBtn      = document.getElementById('send-btn');
+  const screenshotImg = document.getElementById('screenshot-img');
+  const captionText  = document.getElementById('caption-text');
+  const ssWrap       = document.getElementById('screenshot-wrap');
+  const ssPlaceholder = ssWrap.querySelector('.screenshot-placeholder');
+  const statUser     = document.getElementById('stat-user');
+  const statMsgs     = document.getElementById('stat-msgs');
+  const statVision   = document.getElementById('stat-vision');
+  const statIntent   = document.getElementById('stat-intent');
+  const statusDot    = document.getElementById('status-indicator');
+  const statusText   = document.getElementById('status-text');
+  const toast        = document.getElementById('toast');
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let msgCount    = 0;
+  let visionCount = 0;
+  let toastTimer  = null;
+
+  // ── Toast ───────────────────────────────────────────────────────────────────
+  function showToast(msg, type = 'info') {
+    toast.textContent = msg;
+    toast.className   = `show ${type}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toast.className = ''; }, 3200);
+  }
+
+  // ── Setup ───────────────────────────────────────────────────────────────────
+  startBtn.addEventListener('click', startSession);
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') startSession(); });
+
+  async function startSession() {
+    const name = nameInput.value.trim();
+    if (!name) { showToast('Please enter your name', 'error'); return; }
+
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting…';
+
+    try {
+      const res = await fetch('/api/setup', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Setup failed');
+
+      // Update header status
+      statusDot.className = 'status-dot online';
+      statusText.textContent = `Active — ${data.user}`;
+
+      // Update stat
+      statUser.textContent = data.user;
+
+      // Hide setup banner, enable chat
+      setupBanner.style.display = 'none';
+      chatCol.classList.remove('chat-locked');
+      msgInput.disabled  = false;
+      sendBtn.disabled   = false;
+
+      addAssistantMsg(`Hello, ${data.user}! I'm Vision, your multimodal AI assistant.\n\nYou can chat with me naturally, or say "look" to activate the webcam for visual observations.`);
+      msgInput.focus();
+    } catch (err) {
+      showToast(err.message, 'error');
+      startBtn.disabled    = false;
+      startBtn.textContent = 'Start Session';
+    }
+  }
+
+  // ── Chat input ──────────────────────────────────────────────────────────────
+  msgInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Auto-resize textarea
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 120) + 'px';
+  });
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  async function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    msgInput.disabled = true;
+    sendBtn.disabled  = true;
+
+    addUserMsg(text);
+    const typing = addTypingIndicator();
+
+    try {
+      const res = await fetch('/api/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+
+      removeTypingIndicator(typing);
+      addAssistantMsg(data.reply, data.intent, data.confidence, data.vision_used);
+
+      msgCount++;
+      statMsgs.textContent = msgCount;
+
+      if (data.vision_used && data.screenshot_taken) {
+        visionCount++;
+        statVision.textContent = visionCount;
+        // Reload the screenshot with cache-buster
+        const ts = Date.now();
+        screenshotImg.src = `/api/screenshot?t=${ts}`;
+        screenshotImg.style.display = 'block';
+        ssPlaceholder.style.display = 'none';
+        captionText.textContent = data.caption ? `"${data.caption}"` : '';
+      }
+
+      if (data.intent) {
+        statIntent.textContent = data.intent.replace(/_/g, ' ');
+      }
+
+    } catch (err) {
+      removeTypingIndicator(typing);
+      showToast(err.message, 'error');
+    } finally {
+      msgInput.disabled = false;
+      sendBtn.disabled  = false;
+      msgInput.focus();
+    }
+  }
+
+  // ── Message rendering ───────────────────────────────────────────────────────
+  function addUserMsg(text) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg user';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    const meta = document.createElement('div');
+    meta.className = 'msg-meta';
+    meta.textContent = formatTime();
+
+    wrapper.append(bubble, meta);
+    // Remove welcome screen if present
+    const welcome = messagesEl.querySelector('.welcome');
+    if (welcome) welcome.remove();
+    messagesEl.appendChild(wrapper);
+    scrollToBottom();
+    return wrapper;
+  }
+
+  function addAssistantMsg(text, intent, confidence, visionUsed) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg assistant';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+
+    const meta = document.createElement('div');
+    meta.className = 'msg-meta';
+
+    const timeSpan = document.createTextNode(formatTime() + ' ');
+    meta.appendChild(timeSpan);
+
+    if (visionUsed) {
+      const vTag = document.createElement('span');
+      vTag.className = 'tag vision';
+      vTag.textContent = '📷 Vision';
+      meta.appendChild(vTag);
+    }
+
+    if (intent && intent !== 'unknown') {
+      const iTag = document.createElement('span');
+      iTag.className = 'tag intent';
+      iTag.textContent = intent.replace(/_/g, ' ');
+      meta.appendChild(iTag);
+    }
+
+    wrapper.append(bubble, meta);
+    const welcome = messagesEl.querySelector('.welcome');
+    if (welcome) welcome.remove();
+    messagesEl.appendChild(wrapper);
+    scrollToBottom();
+    return wrapper;
+  }
+
+  function addTypingIndicator() {
+    const el = document.createElement('div');
+    el.className = 'typing-indicator';
+    el.innerHTML = '<span></span><span></span><span></span>';
+    messagesEl.appendChild(el);
+    scrollToBottom();
+    return el;
+  }
+
+  function removeTypingIndicator(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function formatTime() {
+    const d = new Date();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // ── On load: check if a session was already running ─────────────────────────
+  (async () => {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+      if (data.initialized && data.user) {
+        nameInput.value = data.user;
+        await startSession();
+      }
+    } catch (_) {}
+  })();
+</script>
+</body>
+</html>

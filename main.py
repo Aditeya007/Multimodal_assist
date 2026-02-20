@@ -133,7 +133,7 @@ VISION_TRIGGERS = {"look", "see", "what do you see", "observe"}
 
 # Base system prompt — extended with two visual-priority safety rules:
 #  (a) always prefer the live observation over stored memories.
-#  (b) only compare past vs current when the user explicitly asks (Part 5).
+#  (b) only compare past vs git current when the user explicitly asks (Part 5).
 BASE_SYSTEM_PROMPT = (
     "You are Vision, a personal AI assistant. "
     "Use conversation history to maintain context and help the user "
