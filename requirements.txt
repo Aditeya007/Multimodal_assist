@@ -4,3 +4,8 @@ groq
 sentence-transformers
 chromadb
 numpy
+huggingface_hub
+transformers
+torch
+opencv-python
+pillow

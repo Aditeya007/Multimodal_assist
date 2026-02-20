@@ -89,3 +89,5 @@ tmp/
 
 *.bin
 *.json
+chroma_db
+*.jpg
